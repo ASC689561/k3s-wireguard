@@ -1,0 +1,55 @@
+Vagrant.configure("2") do |config|
+  config.vm.box = "alvistack/ubuntu-24.04"
+  config.vm.hostname = "master" 
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.memory = 4096
+    vb.cpus = 2
+  end
+
+  config.vm.provision "file", source: "../k3s", destination: "/tmp/k3s"
+  config.vm.provision "shell", inline: <<-SHELL
+    sudo mv /tmp/k3s /usr/local/bin/ && sudo chmod 777 /usr/local/bin/k3s
+  SHELL
+
+  config.vm.provision "file", source: "peer_master.conf", destination: "/tmp/wireguard/wg0.conf"
+  config.vm.provision "shell", inline: <<-SHELL
+    sudo mkdir -p /etc/wireguard/ && sudo mv /tmp/wireguard/wg0.conf /etc/wireguard/wg0.conf
+  SHELL
+
+  config.vm.provision "shell", inline: <<-SHELL
+    sudo wg-quick down wg0 || true
+    sudo apt update
+    DEBIAN_FRONTEND=noninteractive sudo apt install -y wireguard net-tools nfs-kernel-server zsh curl
+    sudo systemctl enable wg-quick@wg0
+    sudo systemctl start wg-quick@wg0
+    sudo wg-quick up wg0 || true
+  SHELL
+
+  config.vm.provision "shell", inline: <<-SHELL
+    export INSTALL_K3S_SKIP_DOWNLOAD=True
+    curl -sfL https://get.k3s.io | K3S_TOKEN="dsteam123" sh -s - --node-external-ip=10.13.13.3 --node-ip=10.13.13.3 --flannel-iface=wg0 --flannel-external-ip
+  SHELL
+
+  config.vm.provision "file", source: "nfs-controller.yml", destination: "/tmp/nfs-controller.yml"
+  config.vm.provision "shell", inline: <<-SHELL
+    sudo mkdir -p /var/lib/rancher/k3s/server/manifests && sudo mv /tmp/nfs-controller.yml /var/lib/rancher/k3s/server/manifests/nfs-controller.yml
+  SHELL
+
+  config.vm.provision "shell", inline: <<-SHELL
+    kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
+    while ! kubectl patch storageclass nfs -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'; do
+      echo "Retrying..."
+      sleep 2  
+    done
+    echo "StorageClass patched successfully!"
+  SHELL
+
+  config.vm.provision "shell", inline: <<-SHELL
+    sudo cp /etc/rancher/k3s/k3s.yaml /vagrant/
+    sed -i 's/6443/30643/g' /vagrant/k3s.yaml
+  SHELL
+
+  config.ssh.extra_args = ["-t", "cd /vagrant; sudo -s"]
+  config.vm.network "forwarded_port", guest: 6443, host: 30643, auto_correct: true
+end

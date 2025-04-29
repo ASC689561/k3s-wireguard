@@ -1,0 +1,28 @@
+version: '3.8'
+services:
+  wireguard:
+    image: linuxserver/wireguard
+    container_name: wireguard-1
+    restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4  # You can add more DNS servers if needed
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Ho_Chi_Minh
+      - SERVERURL=192.168.100.1
+      - SERVERPORT=51820
+      - PEERS=nfs,master,worker1
+      - ALLOWEDIPS=10.13.13.0/24
+      - PEERDNS=8.8.8.8
+    volumes:
+      - ./config:/config
+      - /lib/modules:/lib/modules
+    ports:
+      - "51820:51820/udp"
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1

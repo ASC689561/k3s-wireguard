@@ -1,0 +1,33 @@
+Vagrant.configure("2") do |config|
+  config.vm.box = "alvistack/ubuntu-24.04"
+  config.vm.hostname = "nfs"
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.memory = 2048
+    vb.cpus = 2
+  end
+
+  config.vm.provision "file", source: "peer_nfs.conf", destination: "/tmp/wireguard/wg0.conf"
+  config.vm.provision "shell", inline: <<-SHELL
+    sudo mkdir -p /etc/wireguard/ && sudo mv /tmp/wireguard/wg0.conf /etc/wireguard/wg0.conf
+  SHELL
+
+  config.vm.provision "start-vpn",type: "shell", inline: <<-SHELL
+    sudo wg-quick down wg0 || true
+    sudo apt update
+    DEBIAN_FRONTEND=noninteractive sudo apt install -y wireguard net-tools nfs-kernel-server
+    sudo systemctl enable wg-quick@wg0
+    sudo systemctl start wg-quick@wg0
+    sudo wg-quick up wg0 || true
+  SHELL
+
+  config.vm.provision "start-nfs",type: "shell", inline: <<-SHELL
+      sudo mkdir /export -p
+      sudo chown nobody:nogroup /export
+      sudo chmod 777 /export
+      sudo rm -rf /etc/exports
+      echo "/export *(rw,sync,no_subtree_check,no_root_squash,insecure)" | sudo tee -a /etc/exports
+      sudo systemctl restart nfs-server
+  SHELL
+ 
+end
